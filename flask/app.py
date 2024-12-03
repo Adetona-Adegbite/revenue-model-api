@@ -1,49 +1,58 @@
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, request, jsonify
+from joblib import load
+import pandas as pd
+import numpy as np
 
 app = Flask(__name__)
 
-# A simple in-memory structure to store tasks
-tasks = []
+model = load('Model.pkl')
+@app.route("/predict", methods=["POST"])
+def predict_rev():
+    try:
+        input_data = request.get_json()
+        feature_df = pd.DataFrame([input_data])
+        print("Input Data:", feature_df)
 
-@app.route('/', methods=['GET'])
-def home():
-    # Display existing tasks and a form to add a new task
-    html = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Todo List</title>
-</head>
-<body>
-    <h1>Todo List</h1>
-    <form action="/add" method="POST">
-        <input type="text" name="task" placeholder="Enter a new task">
-        <input type="submit" value="Add Task">
-    </form>
-    <ul>
-        {% for task in tasks %}
-        <li>{{ task }} <a href="/delete/{{ loop.index0 }}">x</a></li>
-        {% endfor %}
-    </ul>
-</body>
-</html>
-'''
-    return render_template_string(html, tasks=tasks)
+        results = []
 
-@app.route('/add', methods=['POST'])
-def add_task():
-    # Add a new task from the form data
-    task = request.form.get('task')
-    if task:
-        tasks.append(task)
-    return home()
+        change_steps = np.linspace(-1, 1, 10)
 
-@app.route('/delete/<int:index>', methods=['GET'])
-def delete_task(index):
-    # Delete a task based on its index
-    if index < len(tasks):
-        tasks.pop(index)
-    return home()
+        for i in range(10):
+            num_changes = np.random.randint(1, len(feature_df.columns) + 1)  # Random number of features to modify
+            modified_columns = np.random.choice(feature_df.columns, size=num_changes, replace=False)
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+            modified_input = feature_df.copy()
+
+            print(f"Run {i + 1}: Selected Columns to Modify: {modified_columns}")
+
+            for column in modified_columns:
+                step = np.random.choice(change_steps)
+
+                modified_input[column] = modified_input[column] * (1 + step)
+
+                print(f"Column: {column}, Step: {step}, Modified Value: {modified_input[column].values[0]}")
+
+            prediction = model.predict(modified_input)[0]
+            print(f"Predicted Revenue: {prediction}")
+
+            result = {
+                "modified_features": modified_columns.tolist(),
+                "modified_values": modified_input[modified_columns].values.flatten().tolist(),
+                "predicted_revenue": prediction
+            }
+
+            results.append(result)
+
+        # Convert the results to a DataFrame for consistency
+        results_df = pd.DataFrame(results)
+
+        print("Predictions with Feature Changes:")
+        print(results_df)
+
+        # Return the results as JSON
+        return jsonify(results_df.to_dict(orient="records"))
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+if __name__ == "__main__":
+    app.run(debug=True)
